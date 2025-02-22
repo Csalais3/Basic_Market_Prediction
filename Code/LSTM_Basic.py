@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
-from tensorflow.python.keras.models import Sequential
-from tensorflow.python.keras.layers import LSTM, Dense
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
 from sklearn.metrics import mean_squared_error
 
 # Load the preprocessed data

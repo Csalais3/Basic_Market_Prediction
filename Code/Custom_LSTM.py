@@ -1,11 +1,13 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from tensorflow.python.keras.models import Sequential, load_model
-from tensorflow.python.keras.layers import LSTM, Dense, Dropout
-from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import MinMaxScaler
+import pickle # Import the pickle library
+
 
 # Constants
 SEQUENCE_LENGTH = 7        # Weekly pattern (can be adjusted)
@@ -32,18 +34,22 @@ class StockPredictor:
         # Load raw data
         self.raw_data = pd.read_csv(self.data_path)
         
-        # Data cleaning
-        self.raw_data = self.raw_data.ffill()  # Forward fill missing values
+        # Clean column names: remove extra spaces and convert to lowercase
+        self.raw_data.columns = self.raw_data.columns.str.strip().str.lower()
+        print("Columns found in CSV:", self.raw_data.columns.tolist())
         
-        # Feature engineering
-        self.raw_data['Returns'] = self.raw_data['Close'].pct_change()
-        self.raw_data['MA_10'] = self.raw_data['Close'].rolling(window=10).mean()
-        self.raw_data['Volatility'] = self.raw_data['Returns'].rolling(window=10).std()
+        # Data cleaning: forward-fill missing values
+        self.raw_data = self.raw_data.ffill()
+        
+        # Feature engineering using the 'close' column (now lowercase)
+        self.raw_data['returns'] = self.raw_data['close'].pct_change()
+        self.raw_data['ma_10'] = self.raw_data['close'].rolling(window=10).mean()
+        self.raw_data['volatility'] = self.raw_data['returns'].rolling(window=10).std()
         self.raw_data = self.raw_data.dropna()
 
         # Select features and scale
-        features = self.raw_data[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume', 
-                                 'Returns', 'MA_10', 'Volatility']]
+        features = self.raw_data[['open', 'high', 'low', 'close', 'adj close', 'volume', 
+                                    'returns', 'ma_10', 'volatility']]
         self.scaled_data = self.scaler.fit_transform(features)
 
     def create_sequences(self):
@@ -51,8 +57,7 @@ class StockPredictor:
         X, y = [], []
         for i in range(len(self.scaled_data) - self.sequence_length):
             X.append(self.scaled_data[i:i+self.sequence_length])
-            y.append(self.scaled_data[i+self.sequence_length, 3])  # Predict 'Close' price
-        
+            y.append(self.scaled_data[i+self.sequence_length, 3])  # Predict 'close' price (index 3)
         X = np.array(X)
         y = np.array(y)
         
@@ -72,9 +77,9 @@ class StockPredictor:
     
         self.model.compile(
             optimizer='adam',
-            loss='mse',
+            loss='mean_squared_error',
             metrics=['mae']
-         )
+        )
     
     def train(self, epochs=50, batch_size=32):
         """Train the model with callbacks"""
@@ -101,14 +106,16 @@ class StockPredictor:
         # Make predictions
         y_pred = self.model.predict(self.X_test)
         
-        # Inverse scaling
-        y_test_actual = self.scaler.inverse_transform(
-            np.concatenate([np.zeros((len(self.y_test), self.scaled_data.shape[1]-1), 
-                           self.y_test.reshape(-1,1))], axis=1))[:,3]
+        # Inverse scaling: create dummy arrays to place predictions in the correct column.
+        # The 'close' price is at index 3.
+        y_test_expanded = np.zeros((len(self.y_test), self.scaled_data.shape[1]))
+        y_test_expanded[:, 3] = self.y_test
         
-        y_pred_actual = self.scaler.inverse_transform(
-            np.concatenate([np.zeros((len(y_pred), self.scaled_data.shape[1]-1), 
-                           y_pred.reshape(-1,1))], axis=1))[:,3]
+        y_pred_expanded = np.zeros((len(y_pred), self.scaled_data.shape[1]))
+        y_pred_expanded[:, 3] = y_pred[:, 0]
+        
+        y_test_actual = self.scaler.inverse_transform(y_test_expanded)[:, 3]
+        y_pred_actual = self.scaler.inverse_transform(y_pred_expanded)[:, 3]
 
         # Calculate metrics
         rmse = np.sqrt(mean_squared_error(y_test_actual, y_pred_actual))
@@ -131,8 +138,11 @@ class StockPredictor:
         self.build_model()
         self.train()
         self.evaluate()
+        
+        # Save the fitted scaler using pickle
+        with open('scaler.pkl', 'wb') as f:
+            pickle.dump(self.scaler, f) 
 
 if __name__ == "__main__":
-    predictor = StockPredictor("/Users/csalais3/Downloads/Basic_Market_Prediction/Data/SPX.csv")
-    
+    predictor = StockPredictor("")
     predictor.run_pipeline()

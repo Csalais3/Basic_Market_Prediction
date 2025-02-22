@@ -1,11 +1,11 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-from tensorflow.python.keras.models import load_model
+from tensorflow.keras.models import load_model
 from Preprocessesing import MinMaxScaling 
 
 # Load the trained LSTM model
-model = load_model('trained_stock_predictor.h5')
+model = load_model('lstm_model.h5')
 
 # Load the scaler used during preprocessing
 scaler = MinMaxScaling(feature_range= (0, 1))
