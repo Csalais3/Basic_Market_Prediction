@@ -1,51 +1,91 @@
-import streamlit as st
+import gradio as gr
 import numpy as np
 import pandas as pd
 from tensorflow.keras.models import load_model
-from Preprocessesing import MinMaxScaling 
+import pickle
 
 # Load the trained LSTM model
-model = load_model('lstm_model.h5')
+model = load_model("/content/lstm_stock_predictor.keras")
 
 # Load the scaler used during preprocessing
-scaler = MinMaxScaling(feature_range= (0, 1))
+with open('scaler.pkl', 'rb') as f:
+    scaler = pickle.load(f)
 
-# Define sequence length
+# Define sequence length (number of days required)
 sequence_length = 30
 
-# Streamlit app
-st.title("Stock Predictor")
-st.write("Enter the past 30 days of stock data to predict the next day's closing price.")
+# Create default data: 30 rows with sample values.
+# Each row: [open, high, low, close, adj close, volume]
+data = pd.read_csv('/content/SPX.csv')
+recent_features = data.tail(sequence_length)
+default_data = [[row['Open'], row['High'], row['Low'], row['Close'], row['Adj Close'], row['Volume']] for _, row in recent_features.iterrows()]
+def predict_next_close(stock_data):
+    """
+    Expects stock_data as a list-of-lists with columns:
+    ['open', 'high', 'low', 'close', 'adj close', 'volume']
+    for the past 30 days.
+    """
+    # Create DataFrame from input
+    df = pd.DataFrame(stock_data, columns= ['open', 'high', 'low', 'close', 'adj close', 'volume'])
 
-# Input fields for past stock data
-st.header("Input Past Stock Data")
-input_data = []
-for i in range(sequence_length):
-    open_price = st.number_input(f"Day {i+1} Open Price", value=100.0)
-    high_price = st.number_input(f"Day {i+1} High Price", value=105.0)
-    low_price = st.number_input(f"Day {i+1} Low Price", value=95.0)
-    close_price = st.number_input(f"Day {i+1} Close Price", value=102.0)
-    adj_close = st.number_input(f"Day {i+1} Adj Close", value=102.0)
-    volume = st.number_input(f"Day {i+1} Volume", value=1000000.0)
-    input_data.append([open_price, high_price, low_price, close_price, adj_close, volume])
+    # Feature engineering: create additional columns
+    df['returns'] = df['close'].pct_change()
+    df['ma_10'] = df['close'].rolling(window=10).mean()
+    df['volatility'] = df['returns'].rolling(window=10).std()
 
-# Convert input to DataFrame
-input_df = pd.DataFrame(input_data, columns=['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'])
+    # Fill missing values instead of dropping rows
+    df.fillna(method= 'bfill', inplace= True)
 
-# Add feature engineering (if needed)
-input_df['Returns'] = input_df['Close'].pct_change()
-input_df['MA_10'] = input_df['Close'].rolling(window=10).mean()
-input_df['Volatility'] = input_df['Returns'].rolling(window=10).std()
-input_df = input_df.dropna()
+    # Check if we have exactly 30 rows
+    if len(df) != sequence_length:
+        return "After preprocessing, the input data does not have enough rows.", None
 
-# Scale the input data
-scaled_input = scaler.transform(input_df)
+    # Scale the input data (ensure the feature list is in the same order as during training)
+    features = ['open', 'high', 'low', 'close', 'adj close', 'volume', 'returns', 'ma_10', 'volatility']
+    scaled_input = scaler.transform(df[features])
 
-# Reshape for LSTM input
-scaled_input = scaled_input.reshape(1, sequence_length, -1)  # Shape: (1, sequence_length, num_features)
+    # Reshape for LSTM input: (1, sequence_length, num_features)
+    scaled_input = scaled_input.reshape(1, sequence_length, -1)
 
-# Make prediction
-if st.button("Predict"):
+    # Make prediction using the model
     prediction = model.predict(scaled_input)
-    predicted_price = scaler.inverse_transform(prediction.reshape(-1, 1))[0][0]  # Inverse scaling
-    st.success(f"Predicted Next Day's Closing Price: {predicted_price:.2f}")
+
+    # To inverse transform the prediction, create a dummy array placing the predicted value in the proper column (index 3 corresponds to 'close')
+    dummy = np.zeros((1, len(features)))
+    dummy[0, 3] = prediction[0, 0]
+    predicted_price = scaler.inverse_transform(dummy)[0, 3]
+
+    # Create a plot
+    fig, ax = plt.subplots(figsize=(8, 4))
+    # Plot the past 30 days' closing prices
+    ax.plot(range(1, sequence_length + 1), df['close'], marker= 'o', label= "Past 30 Days Closing Prices")
+    # Instead of a horizontal line, plot an orange dot for the predicted value on day 31
+    ax.scatter(sequence_length + 1, predicted_price, color='orange', s = 100, label="Predicted Next Day Close")
+    ax.set_xlabel("Day")
+    ax.set_ylabel("Stock Price")
+    ax.set_title("Stock Price Trend")
+    ax.legend()
+    ax.grid(True)
+
+    return predicted_price, fig
+
+# Create a Gradio interface with the default data pre-populated
+interface = gr.Interface(
+    fn= predict_next_close,
+    inputs= gr.Dataframe(
+        headers= ["open", "high", "low", "close", "adj close", "volume"],
+        value= default_data,
+        row_count= sequence_length,
+        col_count= 6,
+        label= "Input Past 30 Days Stock Data"
+    ),
+    outputs=[
+        gr.Number(label= "Predicted Next Day's Closing Price"),
+        gr.Plot(label= "Stock Price Trend")
+    ],
+    title= "Stock Predictor",
+    description= "Enter the past 30 days of stock data to predict the next day's closing price."
+)
+
+# Launch the interface (in Colab it will provide a shareable link)
+interface.launch()

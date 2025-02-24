@@ -6,14 +6,14 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import MinMaxScaler
-import pickle # Import the pickle library
+import pickle 
 
 
 # Constants
-SEQUENCE_LENGTH = 7        # Weekly pattern (can be adjusted)
+SEQUENCE_LENGTH = 30        # Monthly pattern (can be adjusted)
 FEATURE_RANGE = (0, 1)     # MinMax scaling range
 TEST_SIZE = 0.2            # 80-20 train-test split
-MODEL_PATH = 'lstm_stock_predictor.h5'
+MODEL_PATH = 'lstm_stock_predictor.keras'
 
 class StockPredictor:
     def __init__(self, data_path):
@@ -56,8 +56,8 @@ class StockPredictor:
         """Create time sequences for LSTM training"""
         X, y = [], []
         for i in range(len(self.scaled_data) - self.sequence_length):
-            X.append(self.scaled_data[i:i+self.sequence_length])
-            y.append(self.scaled_data[i+self.sequence_length, 3])  # Predict 'close' price (index 3)
+            X.append(self.scaled_data[i : i + self.sequence_length])
+            y.append(self.scaled_data[i + self.sequence_length, 3])  # Predict 'close' price (index 3)
         X = np.array(X)
         y = np.array(y)
         
@@ -69,32 +69,32 @@ class StockPredictor:
     def build_model(self):
         """Build and compile LSTM model"""
         self.model = Sequential([
-            LSTM(64, input_shape=(self.sequence_length, self.X_train.shape[2])),  # LSTM layer
+            LSTM(64, input_shape= (self.sequence_length, self.X_train.shape[2])),  # LSTM layer
             Dropout(0.3),  # Dropout layer
             Dense(32, activation='relu'),  # Dense layer
             Dense(1)  # Output layer
         ])
     
         self.model.compile(
-            optimizer='adam',
-            loss='mean_squared_error',
-            metrics=['mae']
+            optimizer= 'adam',
+            loss= 'mean_squared_error',
+            metrics= ['mae']
         )
     
-    def train(self, epochs=50, batch_size=32):
+    def train(self, epochs= 50, batch_size= 32):
         """Train the model with callbacks"""
         callbacks = [
-            EarlyStopping(patience=5, restore_best_weights=True),
+            EarlyStopping(patience= 5, restore_best_weights=True),
             ModelCheckpoint(MODEL_PATH, save_best_only=True)
         ]
         
         history = self.model.fit(
             self.X_train, self.y_train,
-            epochs=epochs,
-            batch_size=batch_size,
-            validation_split=0.1,
-            callbacks=callbacks,
-            verbose=1
+            epochs= epochs,
+            batch_size= batch_size,
+            validation_split= 0.1,
+            callbacks= callbacks,
+            verbose= 1
         )
         return history
 
@@ -117,14 +117,14 @@ class StockPredictor:
         y_test_actual = self.scaler.inverse_transform(y_test_expanded)[:, 3]
         y_pred_actual = self.scaler.inverse_transform(y_pred_expanded)[:, 3]
 
-        # Calculate metrics
+        # Calculate loss
         rmse = np.sqrt(mean_squared_error(y_test_actual, y_pred_actual))
         print(f"Test RMSE: {rmse:.2f}")
         
         # Plot results
         plt.figure(figsize=(12,6))
-        plt.plot(y_test_actual, label='Actual Prices')
-        plt.plot(y_pred_actual, label='Predicted Prices')
+        plt.plot(y_test_actual, label= 'Actual Prices')
+        plt.plot(y_pred_actual, label= 'Predicted Prices')
         plt.title('Stock Price Prediction Results')
         plt.xlabel('Time Steps')
         plt.ylabel('Price')
